@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  PasteTrackingTableName:
+    Type: String
+    Description: Name of DynamoDB table to create to track pastes
+Resources:
+  PastebinScraperDynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref PasteTrackingTableName
+      AttributeDefinitions:
+        - AttributeName: paste_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: paste_key
+          KeyType: HASH
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+      Tags:
+        - Key: project
+          Value: pastebin-scraper
+    DeletionPolicy: Retain
+    
+
+Outputs:
+  DynamoDBTableName:
+    Value: !Ref PastebinScraperDynamoDBTable
+    Description: The name of the DynamoDB table
+    Export:
+      Name:
+        'Fn::Sub': '${AWS::StackName}-DDBTableName'
+
+  DynamoDBTableArn:
+    Value: !GetAtt PastebinScraperDynamoDBTable.Arn
+    Description: The ARN of the DynamoDB table
+    Export:
+      Name:
+        'Fn::Sub': '${AWS::StackName}-DDBTableARN'
+
+  DynamoDBTableStreamArn:
+    Value: !GetAtt  PastebinScraperDynamoDBTable.StreamArn
+    Description: The streaming ARN of the DynamoDB table
+    Export:
+      Name:
+        'Fn::Sub': '${AWS::StackName}-DDBTableStreamARN'

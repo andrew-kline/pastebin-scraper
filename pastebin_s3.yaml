@@ -1,0 +1,22 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  PasteSaveBucketName:
+    Type: String
+    Description: Name of S3 bucket to create for saving pastes
+Resources:
+  PastebinScraperSavedPastesBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Ref PasteSaveBucketName
+      Tags:
+        - Key: project
+          Value: pastebin-scraper
+
+Outputs:
+  S3BucketName:
+    Value: !Ref PastebinScraperSavedPastesBucket
+    Description: The name of the S3 bucket
+    Export:
+      Name:
+        'Fn::Sub': '${AWS::StackName}-BucketName'

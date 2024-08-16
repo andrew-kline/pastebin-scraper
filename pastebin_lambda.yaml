@@ -1,0 +1,184 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  PasteS3StackName:
+    Type: String
+    Description: Name of S3 stack
+  PasteDDBStackName:
+    Type: String
+    Description: Name of DDB stack
+  CodeBucket:
+    Type: String
+  ScraperZipFileName:
+    Type: String
+  SaverZipFileName:
+    Type: String
+
+Resources:
+  PastebinScraperLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties: 
+      FunctionName: pastebin-scraper
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.12
+      Role: !GetAtt PastebinScraperLambdaExecutionRole.Arn
+      Tags:
+        - Key: project
+          Value: pastebin-scraper
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Join [ '', [ 'code/', !Ref ScraperZipFileName ] ]
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: 
+            Fn::ImportValue:
+              'Fn::Sub': '${PasteDDBStackName}-DDBTableName'
+
+  PastebinScraperTrigger:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: 1_minute_pastebin_rule
+      ScheduleExpression: rate(1 minute)
+      State: ENABLED
+      Description: Triggers Lambda function for pastebin scraping every minute
+      EventBusName: default
+      Targets:
+        - Id: Ida9e97f01-4ead-44bf-ab8c-f872d6c1e252
+          Arn: !GetAtt PastebinScraperLambdaFunction.Arn
+      # Tags:
+      #   - Key: project
+      #     Value: pastebin-scraper
+  
+  PastebinScraperLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PastebinScraperLambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt PastebinScraperTrigger.Arn
+
+  PastebinSaverLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties: 
+      FunctionName: pastebin-saver
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.12
+      Role: !GetAtt PastebinSaverLambdaExecutionRole.Arn
+      Tags:
+        - Key: project
+          Value: pastebin-scraper
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Join [ '', [ 'code/', !Ref ScraperZipFileName ] ]
+      Environment:
+        Variables:
+          S3_BUCKET:
+            Fn::ImportValue: 
+              'Fn::Sub': '${PasteS3StackName}-BucketName'
+          DYNAMODB_TABLE:
+            Fn::ImportValue: 
+              'Fn::Sub': '${PasteDDBStackName}-DDBTableName'
+
+  PastebinScraperLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Tags:
+        - Key: project
+          Value: pastebin-scraper
+      Policies:
+        - PolicyName: PastebinScraperDynamoDBPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:Query
+                Resource:
+                  Fn::ImportValue: 
+                    'Fn::Sub': '${PasteDDBStackName}-DDBTableARN'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+      
+  PastebinSaverLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Tags:
+        - Key: project
+          Value: pastebin-scraper
+      Policies:
+        - PolicyName: PastebinSaverS3Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub 
+                  - 'arn:aws:s3:::${BucketName}/*'
+                  - BucketName: 
+                      Fn::ImportValue: 
+                        'Fn::Sub': '${PasteS3StackName}-BucketName'
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:Query
+                Resource:
+                  Fn::ImportValue: 
+                    'Fn::Sub': '${PasteDDBStackName}-DDBTableARN'
+              - Effect: Allow
+                Action:
+                  - dynamodb:DescribeStream
+                  - dynamodb:GetRecords
+                  - dynamodb:GetShardIterator
+                  - dynamodb:ListStreams
+                Resource:
+                  Fn::ImportValue: 
+                    'Fn::Sub': '${PasteDDBStackName}-DDBTableStreamARN'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+              
+
+  DynamoDBStreamToPastebinSaverLambda:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 5
+      StartingPosition: LATEST
+      EventSourceArn:
+        Fn::ImportValue: 
+          'Fn::Sub': '${PasteDDBStackName}-DDBTableStreamARN'
+      FunctionName: !GetAtt PastebinSaverLambdaFunction.Arn
+
+Outputs:
+  PastebinScraperLambdaArn:
+    Value: !GetAtt PastebinScraperLambdaFunction.Arn
+    Description: The ARN of the pastebin-scraper Lambda function
+
+  PastebinSaverLambdaArn:
+    Value: !GetAtt PastebinSaverLambdaFunction.Arn
+    Description: The ARN of the pastebin-saver Lambda function
